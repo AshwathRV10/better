@@ -1,0 +1,560 @@
+// Prisma schema for the "better" sports prediction analytics platform.
+//
+// Design notes
+//  * `Team` is the generic *competitor* row. For football/basketball it is a
+//    club; for tennis it is a single player entity. This keeps the match table
+//    sport-agnostic so new sports plug in without schema changes.
+//  * A `Prediction` is one model run against one match. It fans out into
+//    `PredictionOutcome` rows (one per market selection), `PredictionFeature`
+//    rows (explainability) and `ModelComponentOutcome` rows (model agreement).
+//  * Every prediction records model_version / predicted_at / data_timestamp /
+//    features_version so historical results stay reproducible.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum DataOrigin {
+  DEMO
+  LIVE
+}
+
+enum MatchStatus {
+  SCHEDULED
+  LIVE
+  FINISHED
+  POSTPONED
+  CANCELLED
+}
+
+enum Market {
+  MATCH_WINNER // 1X2 (football) / moneyline (basketball, tennis)
+  OVER_UNDER // total goals / points / games
+  BTTS // both teams to score
+  CORRECT_SCORE
+  ASIAN_HANDICAP
+  POINT_SPREAD
+  SET_WINNER
+  TOTAL_GAMES
+  HANDICAP_GAMES
+}
+
+enum ConfidenceLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum BetResult {
+  PENDING
+  WON
+  LOST
+  PUSH
+  VOID
+}
+
+enum StakingMethod {
+  FLAT
+  PERCENT_BANKROLL
+  FRACTIONAL_KELLY
+}
+
+enum IngestionStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
+// ---------------------------------------------------------------------------
+// Reference data
+// ---------------------------------------------------------------------------
+
+model User {
+  id          String   @id @default(cuid())
+  email       String   @unique
+  displayName String
+  bankroll    Decimal  @default(1000) @db.Decimal(12, 2)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  bets        Bet[]
+
+  @@map("users")
+}
+
+model Sport {
+  id        String   @id @default(cuid())
+  key       String   @unique // "football" | "tennis" | "basketball"
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  leagues   League[]
+  teams     Team[]
+  matches   Match[]
+
+  @@map("sports")
+}
+
+model League {
+  id         String     @id @default(cuid())
+  sportId    String
+  sport      Sport      @relation(fields: [sportId], references: [id], onDelete: Cascade)
+  key        String // slug, unique per sport
+  name       String
+  country    String?
+  tier       Int        @default(1)
+  /// Relative league quality used to normalise ratings across competitions.
+  strength   Float      @default(1.0)
+  externalId String?
+  origin     DataOrigin @default(DEMO)
+  createdAt  DateTime   @default(now())
+  teams      Team[]
+  matches    Match[]
+
+  @@unique([sportId, key])
+  @@index([sportId])
+  @@map("leagues")
+}
+
+model Team {
+  id         String     @id @default(cuid())
+  sportId    String
+  sport      Sport      @relation(fields: [sportId], references: [id], onDelete: Cascade)
+  leagueId   String?
+  league     League?    @relation(fields: [leagueId], references: [id], onDelete: SetNull)
+  key        String
+  name       String
+  shortName  String
+  country    String?
+  externalId String?
+  origin     DataOrigin @default(DEMO)
+  createdAt  DateTime   @default(now())
+
+  players     Player[]
+  homeMatches Match[]         @relation("HomeTeam")
+  awayMatches Match[]         @relation("AwayTeam")
+  ratings     TeamRating[]
+  statistics  TeamStatistic[]
+
+  @@unique([sportId, key])
+  @@index([leagueId])
+  @@map("teams")
+}
+
+model Player {
+  id         String   @id @default(cuid())
+  teamId     String
+  team       Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  key        String
+  name       String
+  position   String?
+  /// 0..1 share of the team's on-pitch value. Drives the injury impact model.
+  importance Float    @default(0.1)
+  externalId String?
+  createdAt  DateTime @default(now())
+
+  statistics   PlayerStatistic[]
+  availability PlayerAvailability[]
+
+  @@unique([teamId, key])
+  @@index([teamId])
+  @@map("players")
+}
+
+// ---------------------------------------------------------------------------
+// Matches
+// ---------------------------------------------------------------------------
+
+model Match {
+  id           String      @id @default(cuid())
+  sportId      String
+  sport        Sport       @relation(fields: [sportId], references: [id], onDelete: Cascade)
+  leagueId     String
+  league       League      @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  season       String
+  round        Int?
+  homeTeamId   String
+  homeTeam     Team        @relation("HomeTeam", fields: [homeTeamId], references: [id], onDelete: Cascade)
+  awayTeamId   String
+  awayTeam     Team        @relation("AwayTeam", fields: [awayTeamId], references: [id], onDelete: Cascade)
+  kickoff      DateTime
+  venue        String?
+  /// Tennis is played on neutral courts; suppresses the home-advantage term.
+  neutralVenue Boolean     @default(false)
+  status       MatchStatus @default(SCHEDULED)
+
+  homeScore   Int?
+  awayScore   Int?
+  /// Sport-specific detail: set scores, period scores, etc.
+  scoreDetail Json?
+
+  externalId String?
+  origin     DataOrigin @default(DEMO)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  events       MatchEvent[]
+  statistics   TeamStatistic[]
+  odds         Odds[]
+  predictions  Prediction[]
+  availability PlayerAvailability[]
+  bets         Bet[]
+
+  @@unique([sportId, externalId])
+  @@index([leagueId, kickoff])
+  @@index([kickoff])
+  @@index([status, kickoff])
+  @@index([homeTeamId, kickoff])
+  @@index([awayTeamId, kickoff])
+  @@map("matches")
+}
+
+model MatchEvent {
+  id        String   @id @default(cuid())
+  matchId   String
+  match     Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  minute    Int
+  type      String // GOAL | CARD | SUBSTITUTION | SET_END ...
+  teamId    String?
+  playerId  String?
+  detail    Json?
+  createdAt DateTime @default(now())
+
+  @@index([matchId])
+  @@map("match_events")
+}
+
+model TeamStatistic {
+  id      String  @id @default(cuid())
+  matchId String
+  match   Match   @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  teamId  String
+  team    Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  isHome  Boolean
+
+  goalsFor      Int?
+  goalsAgainst  Int?
+  xg            Float?
+  xga           Float?
+  shots         Int?
+  shotsOnTarget Int?
+  possession    Float?
+  corners       Int?
+  /// Sport-specific extras (tennis: aces/break points; basketball: pace/eFG%).
+  extra         Json?
+
+  @@unique([matchId, teamId])
+  @@index([teamId])
+  @@map("team_statistics")
+}
+
+model PlayerStatistic {
+  id       String @id @default(cuid())
+  playerId String
+  player   Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  matchId  String
+  minutes  Int?
+  goals    Int?
+  assists  Int?
+  rating   Float?
+  extra    Json?
+
+  @@unique([matchId, playerId])
+  @@index([playerId])
+  @@map("player_statistics")
+}
+
+model PlayerAvailability {
+  id         String   @id @default(cuid())
+  matchId    String
+  match      Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  playerId   String
+  player     Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  status     String // INJURED | SUSPENDED | DOUBTFUL
+  reason     String?
+  reportedAt DateTime @default(now())
+
+  @@unique([matchId, playerId])
+  @@index([matchId])
+  @@map("player_availability")
+}
+
+// ---------------------------------------------------------------------------
+// Odds
+// ---------------------------------------------------------------------------
+
+model Odds {
+  id         String     @id @default(cuid())
+  matchId    String
+  match      Match      @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  bookmaker  String
+  market     Market
+  selection  String // HOME | DRAW | AWAY | OVER | UNDER | YES | NO | "2-1" ...
+  line       Float?
+  /// Decimal odds. Always > 1.0.
+  price      Float
+  capturedAt DateTime   @default(now())
+  /// True for the last price observed before kickoff (used for settlement, never
+  /// as a model input for pre-kickoff predictions).
+  isClosing  Boolean    @default(false)
+  origin     DataOrigin @default(DEMO)
+
+  @@unique([matchId, bookmaker, market, selection, line, capturedAt])
+  @@index([matchId, market])
+  @@index([capturedAt])
+  @@map("odds")
+}
+
+// ---------------------------------------------------------------------------
+// Models and predictions
+// ---------------------------------------------------------------------------
+
+model ModelVersion {
+  id                 String    @id @default(cuid())
+  version            String    @unique // "football-ensemble-1.2.0"
+  sportKey           String
+  name               String
+  description        String?
+  /// Ensemble weights, hyper-parameters and calibration coefficients.
+  parameters         Json
+  trainedAt          DateTime?
+  trainedThrough     DateTime?
+  trainingSampleSize Int?
+  active             Boolean   @default(true)
+  createdAt          DateTime  @default(now())
+
+  predictions Prediction[]
+  performance ModelPerformance[]
+  backtests   Backtest[]
+
+  @@index([sportKey, active])
+  @@map("model_versions")
+}
+
+model Prediction {
+  id             String       @id @default(cuid())
+  matchId        String
+  match          Match        @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  modelVersionId String
+  modelVersion   ModelVersion @relation(fields: [modelVersionId], references: [id], onDelete: Cascade)
+
+  featuresVersion String
+  predictedAt     DateTime @default(now())
+  /// Newest data point that fed this prediction. Drives the freshness badge.
+  dataTimestamp   DateTime
+
+  expectedHomeScore Float?
+  expectedAwayScore Float?
+
+  confidence      ConfidenceLevel
+  confidenceScore Float // 0..100
+  dataQuality     Int // 0..100
+  /// Human-readable drivers derived from real feature values.
+  explanation     Json
+
+  createdAt DateTime @default(now())
+
+  outcomes   PredictionOutcome[]
+  features   PredictionFeature[]
+  components ModelComponentOutcome[]
+  bets       Bet[]
+
+  @@unique([matchId, modelVersionId])
+  @@index([matchId])
+  @@index([predictedAt])
+  @@map("predictions")
+}
+
+model PredictionOutcome {
+  id           String     @id @default(cuid())
+  predictionId String
+  prediction   Prediction @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+  market       Market
+  selection    String
+  line         Float?
+
+  probability Float
+  /// 1 / probability - the break-even price for this selection.
+  fairOdds    Float
+
+  bookmaker          String?
+  bookmakerOdds      Float?
+  /// Margin-adjusted implied probability from the bookmaker price.
+  impliedProbability Float?
+  /// probability - impliedProbability
+  edge               Float?
+  /// probability * bookmakerOdds - 1
+  expectedValue      Float?
+  /// Fractional-Kelly stake as a share of bankroll, capped by config.
+  kellyStake         Float?
+
+  @@index([predictionId, market])
+  @@index([market, expectedValue])
+  @@map("prediction_outcomes")
+}
+
+model PredictionFeature {
+  id           String     @id @default(cuid())
+  predictionId String
+  prediction   Prediction @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+  name         String
+  value        Float
+  /// Signed contribution toward the home side, in log-odds where applicable.
+  contribution Float?
+  category     String // FORM | ATTACK | DEFENCE | HOME_AWAY | H2H | REST | AVAILABILITY | RATING
+
+  @@index([predictionId])
+  @@map("prediction_features")
+}
+
+model ModelComponentOutcome {
+  id           String     @id @default(cuid())
+  predictionId String
+  prediction   Prediction @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+  component    String // elo | poisson | form | ml | market
+  market       Market
+  selection    String
+  probability  Float
+  weight       Float
+
+  @@index([predictionId, component])
+  @@map("model_component_outcomes")
+}
+
+model TeamRating {
+  id             String   @id @default(cuid())
+  teamId         String
+  team           Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  asOf           DateTime
+  elo            Float
+  attack         Float
+  defence        Float
+  matchesPlayed  Int      @default(0)
+  modelVersionId String?
+
+  @@unique([teamId, asOf])
+  @@index([teamId, asOf])
+  @@map("team_ratings")
+}
+
+// ---------------------------------------------------------------------------
+// Evaluation
+// ---------------------------------------------------------------------------
+
+model ModelPerformance {
+  id             String           @id @default(cuid())
+  modelVersionId String
+  modelVersion   ModelVersion     @relation(fields: [modelVersionId], references: [id], onDelete: Cascade)
+  sportKey       String
+  leagueKey      String? // null = all leagues
+  confidence     ConfidenceLevel? // null = all confidence levels
+  market         Market
+
+  predictions Int
+  correct     Int
+  accuracy    Float
+  logLoss     Float
+  brierScore  Float
+  /// Return on turnover across flat 1-unit bets on positive-EV selections.
+  roi         Float?
+  winRate     Float?
+  averageOdds Float?
+  averageEdge Float?
+  /// Reliability-diagram buckets: [{ bin, predicted, observed, count }]
+  calibration Json
+
+  periodStart DateTime
+  periodEnd   DateTime
+  computedAt  DateTime @default(now())
+
+  @@unique([modelVersionId, sportKey, leagueKey, confidence, market, periodStart, periodEnd])
+  @@index([modelVersionId])
+  @@map("model_performance")
+}
+
+model Backtest {
+  id             String       @id @default(cuid())
+  modelVersionId String
+  modelVersion   ModelVersion @relation(fields: [modelVersionId], references: [id], onDelete: Cascade)
+  sportKey       String
+  leagueKey      String?
+  label          String
+  /// Walk-forward configuration: window sizes, retrain cadence, EV threshold.
+  config         Json
+  periodStart    DateTime
+  periodEnd      DateTime
+
+  matches     Int
+  accuracy    Float
+  logLoss     Float
+  brierScore  Float
+  roi         Float
+  betsPlaced  Int
+  staked      Float
+  profit      Float
+  calibration Json
+  /// Cumulative P/L curve: [{ date, bankroll, profit }]
+  equityCurve Json
+
+  createdAt DateTime @default(now())
+
+  @@index([sportKey, createdAt])
+  @@map("backtests")
+}
+
+model Bet {
+  id           String      @id @default(cuid())
+  userId       String
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  matchId      String
+  match        Match       @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  predictionId String?
+  prediction   Prediction? @relation(fields: [predictionId], references: [id], onDelete: SetNull)
+
+  market             Market
+  selection          String
+  line               Float?
+  odds               Float
+  stake              Decimal       @db.Decimal(12, 2)
+  stakingMethod      StakingMethod @default(FLAT)
+  modelProbability   Float
+  impliedProbability Float
+  edge               Float
+  expectedValue      Float
+  modelVersion       String
+
+  result     BetResult @default(PENDING)
+  profitLoss Decimal?  @db.Decimal(12, 2)
+  settledAt  DateTime?
+  placedAt   DateTime  @default(now())
+  notes      String?
+
+  @@index([userId, placedAt])
+  @@index([matchId])
+  @@index([result])
+  @@map("bets")
+}
+
+model IngestionRun {
+  id                 String          @id @default(cuid())
+  provider           String
+  sportKey           String?
+  status             IngestionStatus @default(RUNNING)
+  startedAt          DateTime        @default(now())
+  finishedAt         DateTime?
+  matchesUpserted    Int             @default(0)
+  oddsUpserted       Int             @default(0)
+  predictionsWritten Int             @default(0)
+  error              String?
+
+  @@index([provider, startedAt])
+  @@map("ingestion_runs")
+}

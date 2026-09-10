@@ -1,0 +1,139 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens.
+ *
+ * Colours come from a validated data-visualisation palette: the categorical
+ * slots clear CVD separation, normal-vision separation and 3:1 contrast against
+ * both surfaces (checked with the palette validator, not by eye). Every value is
+ * declared for light first, then overridden for dark under both the OS media
+ * query and an explicit [data-theme] stamp so the toggle wins in both directions.
+ */
+:root {
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --surface-raised: #ffffff;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.1);
+  --border-strong: rgba(11, 11, 11, 0.18);
+
+  /* Categorical: home and away are the two primary series. */
+  --series-home: #2a78d6;
+  --series-away: #eb6834;
+  /* A draw is the "neither" outcome, so it reads as neutral rather than a hue. */
+  --series-draw: #898781;
+  --series-3: #1baf7a;
+
+  /* Status. Never used for a data series, always paired with a label. */
+  --good: #0ca30c;
+  --good-text: #006300;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --surface-raised: #212120;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.1);
+    --border-strong: rgba(255, 255, 255, 0.18);
+    --series-home: #3987e5;
+    --series-away: #d95926;
+    --series-draw: #898781;
+    --series-3: #199e70;
+    --good-text: #0ca30c;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --page: #0d0d0d;
+  --surface: #1a1a19;
+  --surface-raised: #212120;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted: #898781;
+  --grid: #2c2c2a;
+  --axis: #383835;
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --series-home: #3987e5;
+  --series-away: #d95926;
+  --series-draw: #898781;
+  --series-3: #199e70;
+  --good-text: #0ca30c;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-ink: var(--text-primary);
+  --color-ink-secondary: var(--text-secondary);
+  --color-ink-muted: var(--text-muted);
+  --color-grid: var(--grid);
+  --color-axis: var(--axis);
+  --color-hairline: var(--border);
+  --color-hairline-strong: var(--border-strong);
+  --color-home: var(--series-home);
+  --color-draw: var(--series-draw);
+  --color-away: var(--series-away);
+  --color-good: var(--good);
+  --color-good-text: var(--good-text);
+  --color-warning: var(--warning);
+  --color-serious: var(--serious);
+  --color-critical: var(--critical);
+}
+
+html,
+body {
+  background: var(--page);
+  color: var(--text-primary);
+}
+
+body {
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  font-size: 14px;
+}
+
+/* Numeric columns line up only with tabular figures. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* Wide tables scroll inside their own container; the page never scrolls sideways. */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+:focus-visible {
+  outline: 2px solid var(--series-home);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

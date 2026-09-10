@@ -1,0 +1,59 @@
+{
+  "name": "better",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sports betting prediction analytics platform",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "npm run build && playwright test",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:push": "prisma db push",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:reset": "prisma migrate reset --force",
+    "models:train": "tsx scripts/train.ts",
+    "backtest": "tsx scripts/backtest.ts",
+    "verify": "npm run typecheck && npm run lint && npm run test",
+    "db:clear": "tsx scripts/reset-db.ts",
+    "db:migrate:test": "prisma migrate deploy"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.16.2",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "dotenv": "^16.6.1",
+    "next": "^15.5.4",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "recharts": "^2.15.4",
+    "tailwind-merge": "^3.3.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.1",
+    "@playwright/test": "^1.55.0",
+    "@tailwindcss/postcss": "^4.1.12",
+    "@types/node": "^22.15.3",
+    "@types/react": "^19.1.9",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "eslint": "^9.34.0",
+    "eslint-config-next": "^15.5.4",
+    "postcss": "^8.5.6",
+    "prisma": "^6.16.2",
+    "tailwindcss": "^4.1.12",
+    "tsx": "^4.20.4",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}
