@@ -40,7 +40,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         >
           Skip to content
         </a>
-        <Nav />
+        <Nav origin={origin} provider={provider} />
         <DemoBanner origin={origin} provider={provider} />
         <main id="main" className="mx-auto max-w-[1400px] px-4 py-6">
           {children}

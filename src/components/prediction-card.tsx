@@ -27,9 +27,12 @@ export function matchWinnerOutcomes(outcomes: readonly OutcomeDto[]): OutcomeDto
 /**
  * Reusable prediction card.
  *
- * Shows the model's call, its probability, the price, the implied probability,
- * the edge, the estimated EV and the confidence - so the model and the market
- * are always visible side by side rather than the model alone.
+ * Shows the model's call, its probability and its confidence. Where a price
+ * exists it also shows the implied probability, the edge and the estimated EV,
+ * so the model and the market are visible side by side rather than the model
+ * alone. Where no price exists those four rows are replaced with the model's
+ * own fair odds and expected goals — four dashes would say nothing and would
+ * imply a market that simply is not there.
  */
 export function PredictionCard({ match }: { match: MatchDto }) {
   const prediction = match.prediction;
@@ -82,39 +85,52 @@ export function PredictionCard({ match }: { match: MatchDto }) {
             <dt className="text-ink-muted">Probability</dt>
             <dd className="tnum font-semibold text-ink">{percent(best.probability)}</dd>
           </div>
-          <div>
-            <dt className="text-ink-muted">Odds</dt>
-            <dd className="tnum text-ink">
-              {best.bookmakerOdds === null ? (
-                <span className="text-ink-muted">No market</span>
-              ) : (
-                <>
+          {best.bookmakerOdds === null ? (
+            <>
+              <div>
+                <dt className="text-ink-muted">Fair odds</dt>
+                <dd className="tnum text-ink">{decimal(best.fairOdds)}</dd>
+              </div>
+              <div>
+                <dt className="text-ink-muted">Expected goals</dt>
+                <dd className="tnum text-ink">
+                  {prediction.expectedHomeScore === null
+                    ? '—'
+                    : `${decimal(prediction.expectedHomeScore)}–${decimal(prediction.expectedAwayScore)}`}
+                </dd>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <dt className="text-ink-muted">Odds</dt>
+                <dd className="tnum text-ink">
                   {decimal(best.bookmakerOdds)}
                   {best.bookmaker ? (
                     <span className="ml-1 text-[11px] text-ink-muted">{best.bookmaker}</span>
                   ) : null}
-                </>
-              )}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-ink-muted">Implied</dt>
-            <dd className="tnum text-ink">{percent(best.impliedProbability)}</dd>
-          </div>
-          <div>
-            <dt className="text-ink-muted">Edge</dt>
-            <dd className="tnum text-ink">{signedPercent(best.edge)}</dd>
-          </div>
-          <div>
-            <dt className="text-ink-muted">Model EV</dt>
-            <dd
-              className={`tnum font-semibold ${
-                (best.expectedValue ?? 0) > 0 ? 'text-good-text' : 'text-ink'
-              }`}
-            >
-              {signedPercent(best.expectedValue)}
-            </dd>
-          </div>
+                </dd>
+              </div>
+              <div>
+                <dt className="text-ink-muted">Implied</dt>
+                <dd className="tnum text-ink">{percent(best.impliedProbability)}</dd>
+              </div>
+              <div>
+                <dt className="text-ink-muted">Edge</dt>
+                <dd className="tnum text-ink">{signedPercent(best.edge)}</dd>
+              </div>
+              <div>
+                <dt className="text-ink-muted">Model EV</dt>
+                <dd
+                  className={`tnum font-semibold ${
+                    (best.expectedValue ?? 0) > 0 ? 'text-good-text' : 'text-ink'
+                  }`}
+                >
+                  {signedPercent(best.expectedValue)}
+                </dd>
+              </div>
+            </>
+          )}
         </dl>
 
         <div className="mt-3 flex flex-wrap items-center gap-2">

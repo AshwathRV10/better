@@ -57,6 +57,67 @@ export function goalsAgainst(match: HistoricalMatch, teamId: string): number {
   return match.homeTeamId === teamId ? match.awayScore : match.homeScore;
 }
 
+export interface VenueRecord {
+  readonly played: number;
+  readonly won: number;
+  readonly drawn: number;
+  readonly lost: number;
+  readonly goalsForPerMatch: number;
+  readonly goalsAgainstPerMatch: number;
+  readonly pointsPerMatch: number;
+}
+
+const EMPTY_VENUE_RECORD: VenueRecord = {
+  played: 0, won: 0, drawn: 0, lost: 0,
+  goalsForPerMatch: 0, goalsAgainstPerMatch: 0, pointsPerMatch: 0,
+};
+
+/**
+ * Plain won/drawn/lost record split by venue, over matches before the cut-off.
+ *
+ * The model already accounts for venue through the home-advantage term and the
+ * venue-edge features; this is the same information in the form a reader can
+ * check against a league table, which is the point of showing it.
+ *
+ * Neutral-venue matches count as neither home nor away — attributing them to
+ * either side would overstate whichever record absorbed them.
+ */
+export function venueRecord(
+  team: TeamContext,
+  cutoff: Date,
+  venue: 'home' | 'away',
+  lookback?: number,
+): VenueRecord {
+  const window = matchesBefore(team.recentMatches, cutoff, lookback).filter(
+    (match) =>
+      !match.neutralVenue &&
+      (venue === 'home' ? match.homeTeamId === team.teamId : match.awayTeamId === team.teamId),
+  );
+  if (window.length === 0) return EMPTY_VENUE_RECORD;
+
+  let won = 0;
+  let drawn = 0;
+  let scored = 0;
+  let conceded = 0;
+  for (const match of window) {
+    const outcome = outcomeFor(match, team.teamId);
+    if (outcome === 'W') won += 1;
+    else if (outcome === 'D') drawn += 1;
+    scored += goalsFor(match, team.teamId);
+    conceded += goalsAgainst(match, team.teamId);
+  }
+
+  return {
+    played: window.length,
+    won,
+    drawn,
+    lost: window.length - won - drawn,
+    goalsForPerMatch: scored / window.length,
+    goalsAgainstPerMatch: conceded / window.length,
+    pointsPerMatch: (won * 3 + drawn) / window.length,
+  };
+}
+
 export function xgFor(match: HistoricalMatch, teamId: string): number | undefined {
   return match.homeTeamId === teamId ? match.homeXg : match.awayXg;
 }

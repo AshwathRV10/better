@@ -21,5 +21,8 @@ npm-debug.log*
 /blob-report/
 /playwright/.cache/
 
+# Provider response cache. Re-fetched on demand; never a source of truth.
+.cache/
+
 .vscode/
 .idea/

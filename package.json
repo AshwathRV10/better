@@ -22,7 +22,9 @@
     "backtest": "tsx scripts/backtest.ts",
     "verify": "npm run typecheck && npm run lint && npm run test",
     "db:clear": "tsx scripts/reset-db.ts",
-    "db:migrate:test": "prisma migrate deploy"
+    "db:migrate:test": "prisma migrate deploy",
+    "data:bootstrap": "tsx scripts/data.ts --bootstrap",
+    "data:sync": "tsx scripts/data.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

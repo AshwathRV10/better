@@ -168,6 +168,11 @@ export default async function MatchPage({ params }: PageProps) {
   const bestEdge = best?.edge ?? null;
   const edgeClass = bestEdge === null ? null : classifyEdge(bestEdge, reliabilityModel);
 
+  // Odds are a secondary input: the configured data source may not carry any.
+  // Where it does not, the market columns are dropped rather than filled with
+  // dashes, and the prediction stands on its own.
+  const hasMarket = analysis.outcomes.some((outcome) => outcome.bookmakerOdds !== null);
+
   return (
     <div className="flex flex-col gap-5">
       {/* Header */}
@@ -246,12 +251,21 @@ export default async function MatchPage({ params }: PageProps) {
                     {analysis.confidenceScore}/100
                   </dd>
                 </div>
-                <div>
-                  <dt className="text-[11px] uppercase tracking-wider text-ink-muted">Best edge</dt>
-                  <dd className="tnum mt-0.5 text-[15px] font-semibold text-ink">
-                    {signedPercent(bestEdge)}
-                  </dd>
-                </div>
+                {hasMarket ? (
+                  <div>
+                    <dt className="text-[11px] uppercase tracking-wider text-ink-muted">Best edge</dt>
+                    <dd className="tnum mt-0.5 text-[15px] font-semibold text-ink">
+                      {signedPercent(bestEdge)}
+                    </dd>
+                  </div>
+                ) : (
+                  <div>
+                    <dt className="text-[11px] uppercase tracking-wider text-ink-muted">Matches used</dt>
+                    <dd className="tnum mt-0.5 text-[15px] font-semibold text-ink">
+                      {analysis.homeForm.matchesPlayed + analysis.awayForm.matchesPlayed}
+                    </dd>
+                  </div>
+                )}
               </dl>
             ) : null}
           </div>
@@ -259,29 +273,57 @@ export default async function MatchPage({ params }: PageProps) {
           {/* Model versus market */}
           <div>
             <div className="text-[12px] uppercase tracking-wider text-ink-muted">
-              Model versus market
+              {hasMarket ? 'Model versus market' : 'Fair odds'}
             </div>
-            <p className="mt-1 text-[12px] text-ink-muted">
-              Bar is the model probability; the vertical tick is the bookmaker&apos;s
-              margin-adjusted implied probability. The gap between them is the edge.
-            </p>
-            <div className="mt-3 flex flex-col gap-2.5">
-              {winner.map((outcome) => (
-                <ModelVersusMarket
-                  key={outcome.selection}
-                  label={shortLabel(analysis!, outcome.selection)}
-                  modelProbability={outcome.probability}
-                  impliedProbability={outcome.impliedProbability}
-                  role={ROLE_BY_SELECTION[outcome.selection] ?? 'draw'}
-                />
-              ))}
-            </div>
-            {edgeClass && edgeClass.reliability === 'UNVERIFIED' ? (
-              <p className="mt-3 rounded-md border border-serious/40 bg-serious/10 px-3 py-2 text-[12px] text-ink">
-                <strong>Treat this edge with caution.</strong>{' '}
-                {reliabilityExplanation('UNVERIFIED', reliabilityModel)}
-              </p>
-            ) : null}
+            {hasMarket ? (
+              <>
+                <p className="mt-1 text-[12px] text-ink-muted">
+                  Bar is the model probability; the vertical tick is the bookmaker&apos;s
+                  margin-adjusted implied probability. The gap between them is the edge.
+                </p>
+                <div className="mt-3 flex flex-col gap-2.5">
+                  {winner.map((outcome) => (
+                    <ModelVersusMarket
+                      key={outcome.selection}
+                      label={shortLabel(analysis!, outcome.selection)}
+                      modelProbability={outcome.probability}
+                      impliedProbability={outcome.impliedProbability}
+                      role={ROLE_BY_SELECTION[outcome.selection] ?? 'draw'}
+                    />
+                  ))}
+                </div>
+                {edgeClass && edgeClass.reliability === 'UNVERIFIED' ? (
+                  <p className="mt-3 rounded-md border border-serious/40 bg-serious/10 px-3 py-2 text-[12px] text-ink">
+                    <strong>Treat this edge with caution.</strong>{' '}
+                    {reliabilityExplanation('UNVERIFIED', reliabilityModel)}
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <p className="mt-1 text-[12px] text-ink-muted">
+                  The configured data source carries no bookmaker prices for this fixture, so there
+                  is no edge or expected value to report. These are the model&apos;s own break-even
+                  odds — the price at which a bet would be a coin flip on its numbers.
+                </p>
+                <dl className="mt-3 flex flex-col gap-2">
+                  {winner.map((outcome) => (
+                    <div
+                      key={outcome.selection}
+                      className="flex items-baseline justify-between gap-3 border-b border-hairline pb-1.5 text-[13px] last:border-0"
+                    >
+                      <dt className="text-ink-secondary">{sideLabel(analysis!, outcome.selection)}</dt>
+                      <dd className="tnum font-semibold text-ink">
+                        {decimal(outcome.fairOdds)}
+                        <span className="ml-2 font-normal text-ink-muted">
+                          {percent(outcome.probability)}
+                        </span>
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </>
+            )}
           </div>
         </div>
       </Card>
@@ -437,10 +479,74 @@ export default async function MatchPage({ params }: PageProps) {
             </dl>
             <div className="border-t border-hairline px-4 py-3">
               <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
+                Record by venue
+              </div>
+              <p className="mt-0.5 text-[11px] text-ink-muted">
+                Every completed match on record before this kick-off, neutral venues excluded. The
+                form figures above use a shorter, recency-weighted window, so the two counts differ.
+              </p>
+              <table className="mt-1.5 w-full border-collapse text-[13px]">
+                <thead>
+                  <tr>
+                    <th className="w-16 pb-1 text-left text-[11px] font-medium uppercase tracking-wider text-ink-muted">
+                      Venue
+                    </th>
+                    <th className="pb-1 text-right text-[11px] font-medium uppercase tracking-wider text-ink-muted">
+                      P
+                    </th>
+                    <th className="pb-1 text-right text-[11px] font-medium uppercase tracking-wider text-ink-muted">
+                      W
+                    </th>
+                    <th className="pb-1 text-right text-[11px] font-medium uppercase tracking-wider text-ink-muted">
+                      D
+                    </th>
+                    <th className="pb-1 text-right text-[11px] font-medium uppercase tracking-wider text-ink-muted">
+                      L
+                    </th>
+                    <th className="pb-1 text-right text-[11px] font-medium uppercase tracking-wider text-ink-muted">
+                      GF
+                    </th>
+                    <th className="pb-1 text-right text-[11px] font-medium uppercase tracking-wider text-ink-muted">
+                      GA
+                    </th>
+                    <th className="pb-1 text-right text-[11px] font-medium uppercase tracking-wider text-ink-muted">
+                      Pts/m
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(
+                    [
+                      ['Home', team.homeRecord],
+                      ['Away', team.awayRecord],
+                    ] as const
+                  ).map(([label, record]) => (
+                    <tr key={label} className="border-t border-hairline">
+                      <td className="py-1 text-ink-secondary">{label}</td>
+                      <td className="tnum py-1 text-right">{record.played}</td>
+                      <td className="tnum py-1 text-right">{record.won}</td>
+                      <td className="tnum py-1 text-right">{record.drawn}</td>
+                      <td className="tnum py-1 text-right">{record.lost}</td>
+                      <td className="tnum py-1 text-right">{decimal(record.goalsForPerMatch)}</td>
+                      <td className="tnum py-1 text-right">{decimal(record.goalsAgainstPerMatch)}</td>
+                      <td className="tnum py-1 text-right font-medium">
+                        {decimal(record.pointsPerMatch)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="border-t border-hairline px-4 py-3">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
                 Unavailable
               </div>
               {team.absentees.length === 0 ? (
-                <p className="mt-1 text-[13px] text-ink-muted">None reported</p>
+                <p className="mt-1 text-[13px] text-ink-muted">
+                  {team.availabilityReported
+                    ? 'None reported'
+                    : 'Not known — the configured data source has no team-news feed, so injuries and suspensions are not factored into this prediction.'}
+                </p>
               ) : (
                 <ul className="mt-1.5 flex flex-col gap-1">
                   {team.absentees.map((player) => (
@@ -472,16 +578,20 @@ export default async function MatchPage({ params }: PageProps) {
             subtitle="Every market is derived from the same underlying distribution, so the prices are mutually consistent."
           />
           <div className="table-scroll">
-            <table className="w-full min-w-[620px] border-collapse">
+            <table className={`w-full border-collapse ${hasMarket ? 'min-w-[620px]' : 'min-w-[360px]'}`}>
               <thead>
                 <tr>
                   <Th>Market</Th>
                   <Th>Selection</Th>
                   <Th align="right">Model</Th>
                   <Th align="right">Fair odds</Th>
-                  <Th align="right">Best price</Th>
-                  <Th align="right">Edge</Th>
-                  <Th align="right">Model EV</Th>
+                  {hasMarket ? (
+                    <>
+                      <Th align="right">Best price</Th>
+                      <Th align="right">Edge</Th>
+                      <Th align="right">Model EV</Th>
+                    </>
+                  ) : null}
                 </tr>
               </thead>
               <tbody className="divide-y divide-hairline">
@@ -501,20 +611,24 @@ export default async function MatchPage({ params }: PageProps) {
                       <Td>{selectionLabel(outcome.selection)}</Td>
                       <Td align="right" className="tnum font-medium">{percent(outcome.probability)}</Td>
                       <Td align="right" className="tnum text-ink-secondary">{decimal(outcome.fairOdds)}</Td>
-                      <Td align="right" className="tnum">
-                        {outcome.bookmakerOdds === null ? (
-                          <span className="text-ink-muted">No market</span>
-                        ) : (
-                          decimal(outcome.bookmakerOdds)
-                        )}
-                      </Td>
-                      <Td align="right" className="tnum">{signedPercent(outcome.edge)}</Td>
-                      <Td
-                        align="right"
-                        className={`tnum ${(outcome.expectedValue ?? 0) > 0 ? 'font-semibold text-good-text' : 'text-ink-secondary'}`}
-                      >
-                        {signedPercent(outcome.expectedValue)}
-                      </Td>
+                      {hasMarket ? (
+                        <>
+                          <Td align="right" className="tnum">
+                            {outcome.bookmakerOdds === null ? (
+                              <span className="text-ink-muted">No market</span>
+                            ) : (
+                              decimal(outcome.bookmakerOdds)
+                            )}
+                          </Td>
+                          <Td align="right" className="tnum">{signedPercent(outcome.edge)}</Td>
+                          <Td
+                            align="right"
+                            className={`tnum ${(outcome.expectedValue ?? 0) > 0 ? 'font-semibold text-good-text' : 'text-ink-secondary'}`}
+                          >
+                            {signedPercent(outcome.expectedValue)}
+                          </Td>
+                        </>
+                      ) : null}
                     </tr>
                   )),
                 )}

@@ -44,18 +44,31 @@ test.describe('navigation', () => {
   });
 });
 
-test.describe('demo data labelling', () => {
-  test('shows the demo banner on every page', async ({ page }) => {
+test.describe('data origin labelling', () => {
+  // The suite runs against whatever the developer has loaded. Both origins are
+  // valid; what must never happen is a page that does not say which it is.
+  test('states the data origin on every page', async ({ page }) => {
     for (const path of ['/', '/value', '/performance', '/tracker', '/admin']) {
       await gotoClean(page, path);
-      await expect(page.getByText('Demo data').first()).toBeVisible();
+      await expect(
+        page.getByText(/Live data|Demo data|Mixed data|Unknown source/).first(),
+      ).toBeVisible();
     }
   });
 
-  test('states plainly that fixtures are simulated', async ({ page }) => {
+  test('labels simulated fixtures loudly, and only when they are simulated', async ({ page }) => {
     await gotoClean(page, '/');
-    await expect(page.getByText(/simulated/i).first()).toBeVisible();
-    await expect(page.getByText(/Nothing here is a real sporting event/i)).toBeVisible();
+    const badge = page.getByText(/Live data|Demo data|Mixed data|Unknown source/).first();
+    const origin = (await badge.innerText()).trim();
+    const body = await page.locator('body').innerText();
+
+    if (origin === 'Demo data' || origin === 'Mixed data') {
+      await expect(page.getByText(/simulated/i).first()).toBeVisible();
+    } else if (origin === 'Live data') {
+      // No banner, and nothing anywhere claiming the fixtures are invented.
+      expect(body).not.toContain('Nothing here is a real sporting event');
+      expect(body).not.toContain('Every fixture, price and result below is simulated');
+    }
   });
 
   test('carries the responsible-use disclaimer', async ({ page }) => {
@@ -86,22 +99,25 @@ test.describe('dashboard', () => {
     await expect(page.getByText(/%/).first()).toBeVisible();
   });
 
-  test('filters by sport and updates the URL', async ({ page }) => {
+  test('filters by league and updates the URL', async ({ page }) => {
     await gotoClean(page, '/');
-    await page.getByLabel('Sport').selectOption('tennis');
-    await page.waitForURL(/sport=tennis/);
-    await expect(page).toHaveURL(/sport=tennis/);
-
-    // Every visible league belongs to the chosen sport.
     const leagueSelect = page.getByLabel('League');
     await expect(leagueSelect).toBeVisible();
+
+    // Whichever leagues are loaded, picking one must survive into the URL so the
+    // filtered view is linkable and works without JavaScript.
+    const value = await leagueSelect.locator('option').nth(1).getAttribute('value');
+    expect(value).toBeTruthy();
+    await leagueSelect.selectOption(value!);
+    await page.waitForURL(new RegExp(`league=${value}`));
+    await expect(page).toHaveURL(new RegExp(`league=${value}`));
   });
 
   test('resets filters', async ({ page }) => {
-    await gotoClean(page, '/?sport=tennis');
+    await gotoClean(page, '/?league=premier-league');
     await page.getByRole('link', { name: 'Reset' }).click();
-    await page.waitForURL((url) => !url.search.includes('sport='));
-    await expect(page).not.toHaveURL(/sport=tennis/);
+    await page.waitForURL((url) => !url.search.includes('league='));
+    await expect(page).not.toHaveURL(/league=/);
   });
 
   test('navigates to a match analysis', async ({ page }) => {
@@ -118,11 +134,21 @@ test.describe('match analysis', () => {
     await page.waitForLoadState('networkidle');
   });
 
-  test('shows the prediction, the market comparison and the model agreement', async ({ page }) => {
+  test('shows the prediction and the model agreement', async ({ page }) => {
     await expect(page.getByText('Predicted outcome')).toBeVisible();
-    await expect(page.getByText('Model versus market')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Model agreement' })).toBeVisible();
     await expect(page.getByText('Ensemble (calibrated)')).toBeVisible();
+    // With an odds feed the panel compares model against market; without one it
+    // falls back to the model's own fair odds. Exactly one must be present —
+    // silently showing nothing would hide that odds are missing.
+    await expect(page.getByText(/Model versus market|Fair odds/).first()).toBeVisible();
+  });
+
+  test('compares the two sides on real, checkable numbers', async ({ page }) => {
+    await expect(page.getByText('Record by venue').first()).toBeVisible();
+    await expect(page.getByText('Elo', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText('Scored / match').first()).toBeVisible();
+    await expect(page.getByText('Conceded / match').first()).toBeVisible();
   });
 
   test('explains the prediction from real features', async ({ page }) => {
@@ -177,7 +203,13 @@ test.describe('value page', () => {
 
   test('shows an honest empty state rather than inventing rows', async ({ page }) => {
     await gotoClean(page, '/value?minEv=9');
-    await expect(page.getByText('No opportunities match these filters')).toBeVisible();
+    // Two different reasons for an empty board, and it must name the right one:
+    // an efficiently priced market, or no odds feed at all.
+    await expect(
+      page.getByText(/No opportunities match these filters|No bookmaker odds are configured/),
+    ).toBeVisible();
+    // Whichever it is, the table body must be gone rather than padded out.
+    await expect(page.locator('table tbody tr')).toHaveCount(0);
   });
 });
 

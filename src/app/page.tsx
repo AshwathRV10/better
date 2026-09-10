@@ -28,6 +28,9 @@ import { decimal, kickoffDate, kickoffTime, percent, signedPercent, sportLabel }
 
 export const dynamic = 'force-dynamic';
 
+/** Fixture horizon: today plus the next week. */
+const FORECAST_DAYS = 7;
+
 interface PageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
@@ -57,7 +60,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         leagueKey: league,
         date,
         from: date ? undefined : now,
-        to: date ? undefined : new Date(now.getTime() + 14 * 86_400_000),
+        to: date ? undefined : new Date(now.getTime() + FORECAST_DAYS * 86_400_000),
         status: 'SCHEDULED',
         limit: 120,
       }),
@@ -74,6 +77,12 @@ export default async function DashboardPage({ searchParams }: PageProps) {
 
     const matches = upcoming.matches;
     const withPredictions = matches.filter((match) => match.prediction !== null);
+    // The odds columns are dropped entirely rather than filled with dashes when
+    // the configured source carries no prices. The prediction is the product;
+    // the market comparison is an extra that may or may not be available.
+    const hasMarket = matches.some((match) =>
+      match.prediction?.outcomes.some((outcome) => outcome.bookmakerOdds !== null),
+    );
     const highConfidence = withPredictions.filter(
       (match) => match.prediction?.confidence === 'HIGH',
     ).length;
@@ -96,7 +105,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           <StatTile
             label="Upcoming fixtures"
             value={matches.length}
-            detail={dateParam ? 'on the selected date' : 'next 14 days'}
+            detail={dateParam ? 'on the selected date' : `today + next ${FORECAST_DAYS} days`}
           />
           <StatTile
             label="Predictions ready"
@@ -112,15 +121,17 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         </section>
 
         <FilterBar>
-          <SelectFilter
-            name="sport"
-            label="Sport"
-            placeholder="All sports"
-            options={sports.map((entry) => ({
-              value: entry.key,
-              label: `${sportLabel(entry.key)} (${entry.upcomingMatches})`,
-            }))}
-          />
+          {sports.length > 1 ? (
+            <SelectFilter
+              name="sport"
+              label="Sport"
+              placeholder="All sports"
+              options={sports.map((entry) => ({
+                value: entry.key,
+                label: `${sportLabel(entry.key)} (${entry.upcomingMatches})`,
+              }))}
+            />
+          ) : null}
           <SelectFilter
             name="league"
             label="League"
@@ -208,11 +219,11 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           {matches.length === 0 ? (
             <EmptyState
               title="No fixtures match these filters"
-              description="Try a different sport, league or date. If the database was just created, run the seed to load fixtures."
+              description="Try a different league or date. If the database was just created, run `npm run data:bootstrap` to import real fixtures and results."
             />
           ) : (
             <div className="table-scroll">
-              <table className="w-full min-w-[900px] border-collapse">
+              <table className={`w-full border-collapse ${hasMarket ? 'min-w-[900px]' : 'min-w-[720px]'}`}>
                 <thead>
                   <tr>
                     <Th>Time</Th>
@@ -220,10 +231,19 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                     <Th>Match</Th>
                     <Th>Model</Th>
                     <Th align="right">Probability</Th>
-                    <Th align="right">Odds</Th>
-                    <Th align="right">Implied</Th>
-                    <Th align="right">Edge</Th>
-                    <Th align="right">Model EV</Th>
+                    {hasMarket ? (
+                      <>
+                        <Th align="right">Odds</Th>
+                        <Th align="right">Implied</Th>
+                        <Th align="right">Edge</Th>
+                        <Th align="right">Model EV</Th>
+                      </>
+                    ) : (
+                      <>
+                        <Th align="right">Fair odds</Th>
+                        <Th align="right">Exp. goals</Th>
+                      </>
+                    )}
                     <Th>Confidence</Th>
                   </tr>
                 </thead>
@@ -231,7 +251,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                   <tbody key={day} className="divide-y divide-hairline">
                     <tr>
                       <td
-                        colSpan={10}
+                        colSpan={hasMarket ? 10 : 8}
                         className="border-y border-hairline bg-ink/[0.03] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-secondary"
                       >
                         {kickoffDate(`${day}T12:00:00Z`)}
@@ -258,23 +278,42 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                               <Td align="right" className="tnum font-semibold">
                                 {percent(best.probability)}
                               </Td>
-                              <Td align="right" className="tnum">
-                                {decimal(best.bookmakerOdds)}
-                              </Td>
-                              <Td align="right" className="tnum text-ink-secondary">
-                                {percent(best.impliedProbability)}
-                              </Td>
-                              <Td align="right" className="tnum">
-                                {signedPercent(best.edge)}
-                              </Td>
-                              <Td
-                                align="right"
-                                className={`tnum font-medium ${
-                                  (best.expectedValue ?? 0) > 0 ? 'text-good-text' : 'text-ink-secondary'
-                                }`}
-                              >
-                                {signedPercent(best.expectedValue)}
-                              </Td>
+                              {hasMarket ? (
+                                <>
+                                  <Td align="right" className="tnum">
+                                    {decimal(best.bookmakerOdds)}
+                                  </Td>
+                                  <Td align="right" className="tnum text-ink-secondary">
+                                    {percent(best.impliedProbability)}
+                                  </Td>
+                                  <Td align="right" className="tnum">
+                                    {signedPercent(best.edge)}
+                                  </Td>
+                                  <Td
+                                    align="right"
+                                    className={`tnum font-medium ${
+                                      (best.expectedValue ?? 0) > 0
+                                        ? 'text-good-text'
+                                        : 'text-ink-secondary'
+                                    }`}
+                                  >
+                                    {signedPercent(best.expectedValue)}
+                                  </Td>
+                                </>
+                              ) : (
+                                <>
+                                  <Td align="right" className="tnum text-ink-secondary">
+                                    {decimal(best.fairOdds)}
+                                  </Td>
+                                  <Td align="right" className="tnum text-ink-secondary">
+                                    {match.prediction!.expectedHomeScore === null
+                                      ? '—'
+                                      : `${decimal(match.prediction!.expectedHomeScore)}–${decimal(
+                                          match.prediction!.expectedAwayScore,
+                                        )}`}
+                                  </Td>
+                                </>
+                              )}
                               <Td>
                                 <ConfidenceBadge
                                   level={match.prediction!.confidence}
@@ -283,7 +322,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                               </Td>
                             </>
                           ) : (
-                            <Td colSpan={7} className="text-ink-muted">
+                            <Td colSpan={hasMarket ? 7 : 5} className="text-ink-muted">
                               <Badge tone="neutral">No prediction</Badge>{' '}
                               <span className="ml-1 text-[12px]">
                                 Insufficient history for both sides
@@ -314,10 +353,11 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         ) : null}
 
         <Note>
-          Model probabilities come from an ensemble of a sport-specific scoring model, an Elo
-          rating, a recency-weighted form model and a regularised ML baseline, blended with weights
-          fitted out of sample and calibrated on held-out matches. Bookmaker probabilities are shown
-          after removing the overround, so the edge is not inflated by the bookmaker&apos;s margin.
+          Football probabilities come from three models blended together: a Dixon-Coles bivariate
+          Poisson scoring model, an Elo rating, and a recency-weighted form model. The blend weights
+          are fitted out of sample and the result is calibrated on held-out matches. Nothing here is
+          hand-set. Where bookmaker prices are available they are shown after removing the
+          overround, so the edge is not inflated by the bookmaker&apos;s margin.
         </Note>
       </>
     );
@@ -327,7 +367,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         title="Could not load the dashboard"
         detail={
           error instanceof Error
-            ? `${error.message}. Check that the database is reachable and that the seed has been run.`
+            ? `${error.message}. Check that the database is reachable and that \`npm run data:bootstrap\` has been run. Nothing is shown rather than falling back to simulated fixtures.`
             : 'An unexpected error occurred.'
         }
       />
@@ -339,7 +379,8 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       <div>
         <h1 className="text-xl font-bold tracking-tight text-ink">Dashboard</h1>
         <p className="mt-1 text-[13px] text-ink-secondary">
-          Upcoming fixtures with model probabilities, market comparison and estimated value.
+          Real upcoming football fixtures with model probabilities, from Elo, recent form and a
+          Dixon-Coles scoring model fitted on completed matches.
         </p>
       </div>
       <Suspense fallback={<LoadingRows rows={8} />}>{content}</Suspense>

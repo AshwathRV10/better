@@ -269,6 +269,15 @@ export interface SportModule {
   };
   /** Class labels used by the ML model and calibrator, e.g. ['HOME','DRAW','AWAY']. */
   readonly classes: readonly string[];
+  /**
+   * Whether this sport's ensemble includes the learned ML component.
+   *
+   * Football sets this to false: measured out of sample it scored ~10% WORSE
+   * than the base rate, so the ensemble is the three interpretable models
+   * instead. Keeping the flag on the module means the training pipeline skips
+   * fitting a model that would never be used.
+   */
+  readonly usesMl: boolean;
   /** Maps a finished match to its class label, for training and evaluation. */
   resultClass(match: Pick<HistoricalMatch, 'homeScore' | 'awayScore'>): string;
 }

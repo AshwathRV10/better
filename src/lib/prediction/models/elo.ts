@@ -98,6 +98,39 @@ export interface RatingTable {
   readonly matchesPlayed: ReadonlyMap<string, number>;
 }
 
+export interface RatingOptions {
+  /**
+   * Rating given to a team the first time it appears.
+   *
+   * Receives the ratings already established in the competition, so a newly
+   * promoted side can be seeded relative to the division it is joining instead
+   * of at the global default.
+   */
+  readonly seedFor?: (established: readonly number[]) => number;
+}
+
+/**
+ * Seeds a first-time team at the mean of the division's weakest third.
+ *
+ * Defaulting a newcomer to the league average is badly wrong for football:
+ * promoted sides are usually among the weakest teams in the division, so an
+ * average seed rates them above established mid-table clubs and above genuinely
+ * poor ones. Using the bottom third of the current distribution adapts to each
+ * league automatically rather than hard-coding a penalty, and falls back to the
+ * configured default until enough teams have a rating to measure.
+ */
+export function promotedTeamSeed(
+  established: readonly number[],
+  fallback: number,
+  minimumEstablished = 8,
+): number {
+  if (established.length < minimumEstablished) return fallback;
+  const sorted = [...established].sort((a, b) => a - b);
+  const third = Math.max(1, Math.floor(sorted.length / 3));
+  const weakest = sorted.slice(0, third);
+  return weakest.reduce((sum, value) => sum + value, 0) / weakest.length;
+}
+
 /**
  * Replays a chronologically ordered match list to produce current ratings.
  *
@@ -108,14 +141,23 @@ export function buildRatings(
   matches: readonly HistoricalMatch[],
   config: EloConfig = DEFAULT_ELO_CONFIG,
   seed?: ReadonlyMap<string, number>,
+  options: RatingOptions = {},
 ): RatingTable {
   const ratings = new Map<string, number>(seed ?? []);
   const matchesPlayed = new Map<string, number>();
   const ordered = [...matches].sort((a, b) => a.kickoff.getTime() - b.kickoff.getTime());
 
+  const ratingFor = (teamId: string): number => {
+    const existing = ratings.get(teamId);
+    if (existing !== undefined) return existing;
+    return options.seedFor
+      ? options.seedFor([...ratings.values()])
+      : config.initialRating;
+  };
+
   for (const match of ordered) {
-    const home = ratings.get(match.homeTeamId) ?? config.initialRating;
-    const away = ratings.get(match.awayTeamId) ?? config.initialRating;
+    const home = ratingFor(match.homeTeamId);
+    const away = ratingFor(match.awayTeamId);
     const update = updateElo(
       home,
       away,

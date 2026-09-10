@@ -11,7 +11,8 @@ import { z } from 'zod';
 const schema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   NEXT_PUBLIC_APP_URL: z.string().url().default('http://localhost:3000'),
-  DATA_PROVIDER: z.enum(['demo', 'api-football']).default('demo'),
+  DATA_PROVIDER: z.enum(['openfootball', 'demo', 'api-football']).default('openfootball'),
+  OPENFOOTBALL_SEASONS: z.string().optional().default(''),
   SPORTS_API_KEY: z.string().optional().default(''),
   ODDS_API_KEY: z.string().optional().default(''),
   API_ACCESS_KEY: z.string().optional().default(''),

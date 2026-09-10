@@ -13,6 +13,7 @@ import {
 } from '@/components/ui';
 import { DateFilter, FilterBar, ResetFilters, SelectFilter, ThresholdFilter } from '@/components/filter-bar';
 import {
+  getDataFreshness,
   listLeagues,
   listSports,
   listValueOpportunities,
@@ -92,7 +93,7 @@ export default async function ValuePage({ searchParams }: PageProps) {
 
   let body;
   try {
-    const [sports, leagues, opportunities, reliabilityModels] = await Promise.all([
+    const [sports, leagues, opportunities, reliabilityModels, freshness] = await Promise.all([
       listSports(),
       listLeagues(sport),
       listValueOpportunities({
@@ -108,7 +109,11 @@ export default async function ValuePage({ searchParams }: PageProps) {
         limit: 100,
       }),
       loadReliabilityModels(),
+      // Distinguishes "the market is efficiently priced" from "there is no
+      // market": an empty board means very different things in the two cases.
+      getDataFreshness(),
     ]);
+    const oddsAvailable = freshness.newestOdds !== null;
 
     const supported = opportunities.filter((entry) => entry.reliability === 'SUPPORTED');
     const flagged = opportunities.filter((entry) => entry.reliability === 'UNVERIFIED');
@@ -234,8 +239,16 @@ export default async function ValuePage({ searchParams }: PageProps) {
           />
           {opportunities.length === 0 ? (
             <EmptyState
-              title="No opportunities match these filters"
-              description="Lower the minimum EV or edge, widen the date range, or allow flagged edges. An empty board is a normal outcome when the market is efficiently priced."
+              title={
+                oddsAvailable
+                  ? 'No opportunities match these filters'
+                  : 'No bookmaker odds are configured'
+              }
+              description={
+                oddsAvailable
+                  ? 'Lower the minimum EV or edge, widen the date range, or allow flagged edges. An empty board is a normal outcome when the market is efficiently priced.'
+                  : 'Value requires a price to compare the model against. The active data source supplies fixtures and results but no odds, so there is nothing to compute an edge from. Predictions themselves are unaffected — see the dashboard.'
+              }
             />
           ) : (
             <div className="table-scroll">

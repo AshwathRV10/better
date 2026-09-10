@@ -2,6 +2,7 @@ import { prisma } from '@/lib/db/prisma';
 import { getDataFreshness } from '@/lib/services/queries';
 import { ok, route } from '@/lib/api/http';
 import { getConfig } from '@/lib/config';
+import { createProvider } from '@/lib/providers/registry';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,7 +58,16 @@ export const GET = route(async () => {
     latencyMs: Date.now() - startedAt,
     provider: config.DATA_PROVIDER,
     // Whether a key is present, never the key itself.
-    providerConfigured: config.DATA_PROVIDER === 'demo' || config.SPORTS_API_KEY.length > 0,
+    // Ask the provider itself rather than guessing from which keys are set:
+    // openfootball needs none, api-football needs one, and a future adapter may
+    // need something else entirely.
+    providerConfigured: (() => {
+      try {
+        return createProvider(config.DATA_PROVIDER).isConfigured();
+      } catch {
+        return false;
+      }
+    })(),
     apiKeyRequired: config.API_ACCESS_KEY.length > 0,
     counts,
     freshness,

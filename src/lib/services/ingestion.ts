@@ -19,7 +19,6 @@ export interface IngestionSummary {
   readonly runId: string;
   readonly provider: string;
   readonly origin: DataOrigin;
-  readonly fallbackReason: string | null;
   readonly leagues: number;
   readonly teams: number;
   readonly players: number;
@@ -258,7 +257,6 @@ export async function ingestAll(options: IngestOptions = {}): Promise<IngestionS
       runId: run.id,
       provider: provider.name,
       origin,
-      fallbackReason: options.provider ? null : resolution.fallbackReason,
       leagues: leagues.length,
       teams: teamCount,
       players: playerCount,

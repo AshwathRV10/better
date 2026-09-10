@@ -11,7 +11,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../db/prisma';
 import { generatePrediction, matchInclude } from './predictions';
 import { buildMatchContext } from './context';
-import { computeForm, computeHeadToHead, computeRest } from '../prediction/features';
+import { computeForm, computeHeadToHead, computeRest, venueRecord, type VenueRecord } from '../prediction/features';
 import { getSportModule } from '../prediction/sports/registry';
 import { getActiveModelVersion, loadModelParameters } from './modelVersions';
 import type { ConfidenceLevel, SportKey } from '../prediction/types';
@@ -44,6 +44,15 @@ export interface TeamFormDto {
   readonly elo: number;
   readonly daysSinceLastMatch: number | null;
   readonly matchesInLast14Days: number;
+  /** Won/drawn/lost split by venue over the same history the model used. */
+  readonly homeRecord: VenueRecord;
+  readonly awayRecord: VenueRecord;
+  /**
+   * Whether a team-news feed covered this side at all. Without one an empty
+   * absentee list means "not known", not "everyone is fit", and the interface
+   * has to say which.
+   */
+  readonly availabilityReported: boolean;
   readonly absentees: ReadonlyArray<{ name: string; position: string | null; status: string; importance: number }>;
 }
 
@@ -242,6 +251,9 @@ export async function getMatchAnalysis(matchId: string): Promise<MatchAnalysisDt
       elo: ctx.home.rating.elo,
       daysSinceLastMatch: homeRest.daysSinceLastMatch,
       matchesInLast14Days: homeRest.matchesInLast14Days,
+      homeRecord: venueRecord(ctx.home, prediction.predictedAt, 'home'),
+      awayRecord: venueRecord(ctx.home, prediction.predictedAt, 'away'),
+      availabilityReported: ctx.home.squadImportanceTotal > 0,
       absentees: ctx.home.absentees.map((player) => ({
         name: player.name,
         position: player.position ?? null,
@@ -261,6 +273,9 @@ export async function getMatchAnalysis(matchId: string): Promise<MatchAnalysisDt
       elo: ctx.away.rating.elo,
       daysSinceLastMatch: awayRest.daysSinceLastMatch,
       matchesInLast14Days: awayRest.matchesInLast14Days,
+      homeRecord: venueRecord(ctx.away, prediction.predictedAt, 'home'),
+      awayRecord: venueRecord(ctx.away, prediction.predictedAt, 'away'),
+      availabilityReported: ctx.away.squadImportanceTotal > 0,
       absentees: ctx.away.absentees.map((player) => ({
         name: player.name,
         position: player.position ?? null,

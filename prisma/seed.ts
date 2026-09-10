@@ -19,7 +19,6 @@ async function main() {
   const startedAt = Date.now();
   console.log('→ Ingesting sports data…');
   const ingestion = await ingestAll();
-  if (ingestion.fallbackReason) console.warn(`  ! ${ingestion.fallbackReason}`);
   console.log(
     `  ${ingestion.provider} (${ingestion.origin}): ${ingestion.leagues} leagues, ` +
       `${ingestion.teams} teams, ${ingestion.players} players, ${ingestion.matches} matches, ` +

@@ -279,6 +279,7 @@ export const basketballModule: SportModule = {
   featuresVersion: FEATURES_VERSION,
   defaultParameters: BASKETBALL_DEFAULT_PARAMETERS,
   classes: [...BASKETBALL_CLASSES],
+  usesMl: true,
   buildFeatures: buildBasketballFeatures,
   predict: basketballPredict,
   resultClass: (match) => (match.homeScore > match.awayScore ? 'HOME' : 'AWAY'),

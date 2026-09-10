@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { clsx } from 'clsx';
 import { ThemeToggle } from './theme-toggle';
+import { OriginBadge } from './data-status';
 
 const LINKS = [
   { href: '/', label: 'Dashboard' },
@@ -14,7 +15,7 @@ const LINKS = [
   { href: '/admin', label: 'Admin' },
 ] as const;
 
-export function Nav() {
+export function Nav({ origin, provider }: { origin: string; provider: string | null }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -50,6 +51,7 @@ export function Nav() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2 md:ml-0">
+          <OriginBadge origin={origin} provider={provider} />
           <ThemeToggle />
           <button
             type="button"

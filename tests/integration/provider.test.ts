@@ -194,26 +194,34 @@ describe('resolveProvider', () => {
     process.env.SPORTS_API_KEY = original.SPORTS_API_KEY;
   });
 
-  it('returns the demo provider by default', () => {
+  it('defaults to the real-data openfootball provider', () => {
+    delete process.env.DATA_PROVIDER;
+    const resolution = resolveProvider();
+    expect(resolution.provider.name).toBe('openfootball');
+    expect(resolution.provider.origin).toBe('LIVE');
+  });
+
+  it('returns the demo provider only when it is explicitly requested', () => {
     process.env.DATA_PROVIDER = 'demo';
     const resolution = resolveProvider();
     expect(resolution.provider.name).toBe('demo');
-    expect(resolution.fallbackReason).toBeNull();
+    expect(resolution.provider.origin).toBe('DEMO');
   });
 
-  it('falls back to demo with an explanation when a live provider has no key', () => {
+  it('throws rather than silently serving demo data when a live provider lacks its key', () => {
     process.env.DATA_PROVIDER = 'api-football';
     process.env.SPORTS_API_KEY = '';
-    const resolution = resolveProvider();
-    expect(resolution.provider.name).toBe('demo');
-    expect(resolution.fallbackReason).toMatch(/not configured/i);
+    expect(() => resolveProvider()).toThrow(ProviderNotConfiguredError);
+  });
+
+  it('rejects an unknown provider name instead of guessing', () => {
+    process.env.DATA_PROVIDER = 'not-a-provider';
+    expect(() => resolveProvider()).toThrow(/not a known provider/i);
   });
 
   it('uses the live provider when it is configured', () => {
     process.env.DATA_PROVIDER = 'api-football';
     process.env.SPORTS_API_KEY = 'test-key';
-    const resolution = resolveProvider();
-    expect(resolution.provider.name).toBe('api-football');
-    expect(resolution.fallbackReason).toBeNull();
+    expect(resolveProvider().provider.name).toBe('api-football');
   });
 });

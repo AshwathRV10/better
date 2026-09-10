@@ -6,6 +6,7 @@ import {
   eloExpectedScore,
   eloOutcomeProbabilities,
   marginMultiplier,
+  promotedTeamSeed,
   updateElo,
 } from '@/lib/prediction/models/elo';
 import { DAY, makeMatch } from '../helpers/context';
@@ -194,5 +195,65 @@ describe('eloOutcomeProbabilities', () => {
     const lowDraw = eloOutcomeProbabilities(0.5, 0.15);
     const highDraw = eloOutcomeProbabilities(0.5, 0.32);
     expect(highDraw.draw).toBeGreaterThan(lowDraw.draw);
+  });
+});
+
+describe('promotedTeamSeed', () => {
+  it('falls back to the default until enough teams are established', () => {
+    expect(promotedTeamSeed([1500, 1600], 1500)).toBe(1500);
+    expect(promotedTeamSeed([], 1450)).toBe(1450);
+  });
+
+  it('seeds at the mean of the weakest third, not the league average', () => {
+    // Twelve teams evenly spread 1300..1740; weakest third is 1300/1340/1380/1420.
+    const established = [1300, 1340, 1380, 1420, 1460, 1500, 1540, 1580, 1620, 1660, 1700, 1740];
+    const average = established.reduce((s, v) => s + v, 0) / established.length;
+    const seed = promotedTeamSeed(established, 1500);
+    expect(seed).toBeCloseTo((1300 + 1340 + 1380 + 1420) / 4, 6);
+    expect(seed).toBeLessThan(average);
+  });
+
+  it('never rates a newcomer above an established weak team', () => {
+    const established = [1320, 1360, 1400, 1450, 1500, 1550, 1600, 1650, 1700];
+    const seed = promotedTeamSeed(established, 1500);
+    expect(seed).toBeLessThan(Math.max(...established));
+    expect(seed).toBeGreaterThanOrEqual(Math.min(...established));
+  });
+});
+
+describe('buildRatings with a newcomer seed', () => {
+  const base = new Date('2026-01-01T12:00:00Z');
+
+  it('applies the seed to a team appearing for the first time', () => {
+    // Eight established teams play each other, then a ninth arrives.
+    const matches = [];
+    for (let i = 0; i < 8; i += 1) {
+      matches.push(
+        makeMatch({
+          kickoff: new Date(base.getTime() + i * DAY),
+          homeTeamId: `established-${i % 4}`,
+          awayTeamId: `established-${(i % 4) + 4}`,
+          homeScore: 2,
+          awayScore: 0,
+        }),
+      );
+    }
+    matches.push(
+      makeMatch({
+        kickoff: new Date(base.getTime() + 20 * DAY),
+        homeTeamId: 'newcomer',
+        awayTeamId: 'established-0',
+        homeScore: 1,
+        awayScore: 1,
+      }),
+    );
+
+    const withSeed = buildRatings(matches, DEFAULT_ELO_CONFIG, undefined, {
+      seedFor: (established) => promotedTeamSeed(established, DEFAULT_ELO_CONFIG.initialRating),
+    });
+    const withoutSeed = buildRatings(matches);
+
+    // The newcomer starts below the default rather than at league average.
+    expect(withSeed.ratings.get('newcomer')!).toBeLessThan(withoutSeed.ratings.get('newcomer')!);
   });
 });

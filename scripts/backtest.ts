@@ -8,6 +8,7 @@ import 'dotenv/config';
 import { prisma } from '../src/lib/db/prisma';
 import { runBacktest } from '../src/lib/backtest/walkForward';
 import { getActiveModelVersion } from '../src/lib/services/modelVersions';
+import type { EvaluationMetrics } from '../src/lib/backtest/metrics';
 import type { SportKey } from '../src/lib/prediction/types';
 import type { Prisma } from '@prisma/client';
 
@@ -46,9 +47,42 @@ async function main() {
         console.log(`market      log loss ${b.logLoss.toFixed(4)}, Brier ${b.brierScore.toFixed(4)}, accuracy ${(b.accuracy * 100).toFixed(1)}%`);
         console.log(`vs market   ${m.logLoss < b.logLoss ? 'BETTER' : 'worse'} by ${Math.abs(m.logLoss - b.logLoss).toFixed(4)} log loss`);
       }
-      console.log('components  (standalone, uncalibrated):');
+      // The comparison the evaluation actually turns on: does each added layer
+      // of machinery buy anything over the one below it, on real matches it was
+      // not trained on? Components are scored standalone and uncalibrated;
+      // only the combined row is the deployed model.
+      const componentLabels: Record<string, string> = {
+        poisson: 'Poisson / Dixon-Coles',
+        elo: 'Elo',
+        form: 'recent form',
+        ml: 'logistic (ML)',
+        market: 'market-derived',
+      };
+      const rows: Array<{ label: string; metrics: EvaluationMetrics }> = [
+        { label: 'base rate (prior)', metrics: result.priorBaseline },
+      ];
+      for (const name of ['elo', 'poisson', 'form', 'ml'] as const) {
+        const component = result.perComponent.find((c) => c.component === name);
+        if (component) rows.push({ label: componentLabels[name] ?? name, metrics: component.metrics });
+      }
+      rows.push({ label: 'COMBINED (calibrated)', metrics: m });
+      if (result.marketBaseline) rows.push({ label: 'bookmaker (margin-free)', metrics: result.marketBaseline });
+
+      console.log('');
+      console.log('model comparison  (walk-forward, out of sample)');
+      console.log(`  ${'model'.padEnd(23)} ${'n'.padStart(6)} ${'accuracy'.padStart(9)} ${'log loss'.padStart(9)} ${'Brier'.padStart(8)}`);
+      for (const row of rows) {
+        console.log(
+          `  ${row.label.padEnd(23)} ${String(row.metrics.predictions).padStart(6)} ` +
+            `${`${(row.metrics.accuracy * 100).toFixed(1)}%`.padStart(9)} ` +
+            `${row.metrics.logLoss.toFixed(4).padStart(9)} ${row.metrics.brierScore.toFixed(4).padStart(8)}`,
+        );
+      }
+      console.log('  (uniform 3-way reference: log loss 1.0986, Brier 0.6667)');
+      console.log('');
+      console.log('ensemble weights fitted in the final window:');
       for (const c of result.perComponent) {
-        console.log(`  ${c.component.padEnd(13)} w=${c.weight.toFixed(2)}  log loss ${c.metrics.logLoss.toFixed(4)}  acc ${(c.metrics.accuracy * 100).toFixed(1)}%  skill ${(c.metrics.skillScore * 100).toFixed(1)}%`);
+        console.log(`  ${c.component.padEnd(13)} w=${c.weight.toFixed(2)}  skill vs base rate ${(c.metrics.skillScore * 100).toFixed(1)}%`);
       }
       const bet = result.betting;
       console.log(`betting     ${bet.betsPlaced} bets, ROI ${(bet.roi * 100).toFixed(1)}%, win rate ${(bet.winRate * 100).toFixed(1)}%, avg odds ${bet.averageOdds.toFixed(2)}`);

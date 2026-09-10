@@ -259,6 +259,7 @@ export const tennisModule: SportModule = {
   featuresVersion: FEATURES_VERSION,
   defaultParameters: TENNIS_DEFAULT_PARAMETERS,
   classes: [...TENNIS_CLASSES],
+  usesMl: true,
   buildFeatures: buildTennisFeatures,
   predict: tennisPredict,
   resultClass: (match) => (match.homeScore > match.awayScore ? 'HOME' : 'AWAY'),

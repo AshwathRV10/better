@@ -56,6 +56,13 @@ export interface BacktestResult {
   readonly betting: BettingMetrics;
   /** Metrics for the market's own margin-free probabilities, where available. */
   readonly marketBaseline: EvaluationMetrics | null;
+  /**
+   * The simplest honest forecaster: the home/draw/away frequencies observed in
+   * the matches before each window, applied unchanged to every fixture in it.
+   * It knows nothing about the two teams. Any model that cannot beat it has not
+   * earned its complexity.
+   */
+  readonly priorBaseline: EvaluationMetrics;
   readonly perLeague: Array<{ leagueKey: string; metrics: EvaluationMetrics }>;
   /**
    * Each sub-model scored on its own. Shows whether a component earns its place
@@ -132,6 +139,7 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
 
   const scored: ScoredPrediction[] = [];
   const marketScored: ScoredPrediction[] = [];
+  const priorScored: ScoredPrediction[] = [];
   const componentScored = new Map<string, { weight: number; samples: ScoredPrediction[] }>();
   let windows = 0;
 
@@ -169,7 +177,9 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
       });
     }
 
-    const ml = trainWithValidation(trainingSamples, mlFeatures, sportModule.classes);
+    const ml = sportModule.usesMl
+      ? trainWithValidation(trainingSamples, mlFeatures, sportModule.classes)
+      : null;
     const withMl: ModelParameters = { ...baseParameters, ml, calibration: null };
 
     // Calibrate on the most recent slice of the training block. It is still
@@ -220,6 +230,20 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
     const calibration = fitCalibration(calibrationSamples, sportModule.classes);
     const parameters: ModelParameters = { ...baseParameters, ensembleWeights, ml, calibration };
 
+    // The prior is counted over the training block only, so it is subject to the
+    // same no-look-ahead rule as everything else. Laplace smoothing keeps it
+    // finite when a class has not yet occurred.
+    const priorCounts = new Array<number>(sportModule.classes.length).fill(1);
+    for (const match of trainSlice) {
+      if (match.homeScore === null || match.awayScore === null) continue;
+      const index = sportModule.classes.indexOf(
+        sportModule.resultClass({ homeScore: match.homeScore, awayScore: match.awayScore }),
+      );
+      if (index >= 0) priorCounts[index] += 1;
+    }
+    const priorTotal = priorCounts.reduce((sum, count) => sum + count, 0);
+    const prior = priorCounts.map((count) => count / priorTotal);
+
     // ---- Predict the held-out window ----
     for (const match of testSlice) {
       const ctx = contexts.get(match.id);
@@ -254,6 +278,13 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
         probabilities,
         actual,
         odds,
+        kickoff: match.kickoff,
+        leagueKey: match.league.key,
+      });
+
+      priorScored.push({
+        probabilities: prior,
+        actual,
         kickoff: match.kickoff,
         leagueKey: match.league.key,
       });
@@ -309,6 +340,7 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
     metrics: evaluate(scored),
     betting: evaluateBetting(scored, { minimumExpectedValue, stake }),
     marketBaseline: marketScored.length > 0 ? evaluate(marketScored) : null,
+    priorBaseline: evaluate(priorScored),
     perLeague: leagueKeys.map((leagueKey) => ({
       leagueKey,
       metrics: evaluate(scored.filter((s) => s.leagueKey === leagueKey)),

@@ -44,7 +44,6 @@ import {
   topCorrectScores,
 } from '../math/poisson';
 import { clamp, normalise, sigmoid } from '../math/stats';
-import { predictMultinomial } from '../models/mlModel';
 import { impliedProbability, removeMargin } from '../../odds';
 
 export const FOOTBALL_CLASSES = ['HOME', 'DRAW', 'AWAY'] as const;
@@ -66,8 +65,15 @@ const REST_SENSITIVITY = 0.08;
 /** Weight of the head-to-head signal in the goal model, before decay. */
 const H2H_SENSITIVITY = 0.12;
 
+/**
+ * Ensemble weights.
+ *
+ * Three interpretable components, no learned model. The Dixon-Coles goal model
+ * leads because it is the only one that produces a full score distribution;
+ * Elo carries opponent-adjusted strength; weighted form supplies recency.
+ */
 export const FOOTBALL_DEFAULT_PARAMETERS: ModelParameters = {
-  ensembleWeights: { poisson: 0.4, elo: 0.25, form: 0.15, ml: 0.2 },
+  ensembleWeights: { poisson: 0.45, elo: 0.35, form: 0.2 },
   calibration: null,
   ml: null,
   elo: { ...DEFAULT_ELO_CONFIG, kFactor: 20, homeAdvantage: 65 },
@@ -384,19 +390,6 @@ function footballPredict(
     outcomes: outcomeList(formComponentProbabilities(features, ctx.league)),
   });
 
-  const mlProbabilities = predictMultinomial(params.ml, features.byName);
-  if (mlProbabilities && mlProbabilities.length === 3) {
-    components.push({
-      component: 'ml',
-      weight: weights.ml ?? 0,
-      outcomes: outcomeList({
-        home: mlProbabilities[0],
-        draw: mlProbabilities[1],
-        away: mlProbabilities[2],
-      }),
-    });
-  }
-
   const market = marketComponent(ctx);
   if (market) {
     // Weight 0: shown for comparison in the UI, never blended into the model
@@ -418,6 +411,7 @@ export const footballModule: SportModule = {
   featuresVersion: FEATURES_VERSION,
   defaultParameters: FOOTBALL_DEFAULT_PARAMETERS,
   classes: [...FOOTBALL_CLASSES],
+  usesMl: false,
   buildFeatures: buildFootballFeatures,
   predict: footballPredict,
   resultClass: (match) => {

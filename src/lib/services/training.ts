@@ -132,7 +132,10 @@ export async function trainSport(sportKey: SportKey): Promise<TrainingResult> {
     });
   }
 
-  const ml = trainWithValidation(trainingSamples, featureNames, sportModule.classes);
+  // Sports whose ensemble excludes the learned component skip the fit entirely.
+  const ml = sportModule.usesMl
+    ? trainWithValidation(trainingSamples, featureNames, sportModule.classes)
+    : null;
   const withMl: ModelParameters = { ...baseParameters, ml, calibration: null };
 
   // ----- Stage 2: score every component on the held-out block -----

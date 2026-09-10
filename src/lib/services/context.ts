@@ -8,7 +8,7 @@
 
 import type { Match, Prisma } from '@prisma/client';
 import { prisma } from '../db/prisma';
-import { DEFAULT_ELO_CONFIG, buildRatings } from '../prediction/models/elo';
+import { DEFAULT_ELO_CONFIG, buildRatings, promotedTeamSeed } from '../prediction/models/elo';
 import type {
   AbsentPlayer,
   HistoricalMatch,
@@ -209,7 +209,11 @@ export async function buildRatingsAsOf(
         ? { ...DEFAULT_ELO_CONFIG, kFactor: 18, homeAdvantage: 60, marginMultiplier: 0.6 }
         : { ...DEFAULT_ELO_CONFIG, kFactor: 20, homeAdvantage: 65 };
 
-  return buildRatings(historical, config);
+  // A club appearing for the first time is almost always newly promoted, so it
+  // is seeded against the division's weakest third rather than its average.
+  return buildRatings(historical, config, undefined, {
+    seedFor: (established) => promotedTeamSeed(established, config.initialRating),
+  });
 }
 
 export interface BuildContextOptions {
