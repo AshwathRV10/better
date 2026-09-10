@@ -24,5 +24,8 @@ npm-debug.log*
 # Provider response cache. Re-fetched on demand; never a source of truth.
 .cache/
 
+# Screenshots captured from a running instance. Regenerable, and large.
+.shots/
+
 .vscode/
 .idea/
